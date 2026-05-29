@@ -2459,16 +2459,26 @@ static int cik_common_early_init(struct amdgpu_ip_block *ip_block)
 			adev->external_rev_id = adev->rev_id + 0xa1;
 		break;
 		case CHIP_LIVERPOOL:
+			/*
+			 * PS4 Liverpool GPU hangs ("ring gfx timeout") when the
+			 * GFX/SDMA deep low-power (light sleep) states are used:
+			 * the engine fails to wake from CP/RLC/CGTS memory light
+			 * sleep before the command submission deadline. This is
+			 * only exposed by sustained Vulkan workloads (DXVK /
+			 * WineD3D), which keep the rings busy enough to race the
+			 * idle->sleep->wake transition. Keep ordinary clock
+			 * gating (MGCG/CGTS) but drop every *_LS flag.
+			 */
 			adev->cg_flags =
 				AMD_CG_SUPPORT_GFX_MGCG |
-				AMD_CG_SUPPORT_GFX_MGLS |
+				/*AMD_CG_SUPPORT_GFX_MGLS |*/
 				/*AMD_CG_SUPPORT_GFX_CGCG |*/
-				AMD_CG_SUPPORT_GFX_CGLS |
+				/*AMD_CG_SUPPORT_GFX_CGLS |*/
 				AMD_CG_SUPPORT_GFX_CGTS |
-				AMD_CG_SUPPORT_GFX_CGTS_LS |
-				AMD_CG_SUPPORT_GFX_CP_LS |
+				/*AMD_CG_SUPPORT_GFX_CGTS_LS |*/
+				/*AMD_CG_SUPPORT_GFX_CP_LS |*/
 				AMD_CG_SUPPORT_SDMA_MGCG |
-				AMD_CG_SUPPORT_SDMA_LS |
+				/*AMD_CG_SUPPORT_SDMA_LS |*/
 				AMD_CG_SUPPORT_BIF_LS |
 				AMD_CG_SUPPORT_VCE_MGCG |
 				AMD_CG_SUPPORT_UVD_MGCG |
@@ -2488,16 +2498,22 @@ static int cik_common_early_init(struct amdgpu_ip_block *ip_block)
 			break;
 
 		case CHIP_GLADIUS:
+			/*
+			 * Same GFX/SDMA deep low-power (light sleep) hang as
+			 * Liverpool above - drop every *_LS flag (and the coarse
+			 * grain CGCG, which on Gladius also drives CGLS) while
+			 * keeping plain clock gating.
+			 */
 			adev->cg_flags =
 				AMD_CG_SUPPORT_GFX_MGCG |
-				AMD_CG_SUPPORT_GFX_MGLS |
-				AMD_CG_SUPPORT_GFX_CGCG |
-				AMD_CG_SUPPORT_GFX_CGLS |
+				/*AMD_CG_SUPPORT_GFX_MGLS |*/
+				/*AMD_CG_SUPPORT_GFX_CGCG |*/
+				/*AMD_CG_SUPPORT_GFX_CGLS |*/
 				AMD_CG_SUPPORT_GFX_CGTS |
-				AMD_CG_SUPPORT_GFX_CGTS_LS |
-				AMD_CG_SUPPORT_GFX_CP_LS |
+				/*AMD_CG_SUPPORT_GFX_CGTS_LS |*/
+				/*AMD_CG_SUPPORT_GFX_CP_LS |*/
 				AMD_CG_SUPPORT_SDMA_MGCG |
-				AMD_CG_SUPPORT_SDMA_LS |
+				/*AMD_CG_SUPPORT_SDMA_LS |*/
 				AMD_CG_SUPPORT_BIF_LS |
 				AMD_CG_SUPPORT_VCE_MGCG |
 				AMD_CG_SUPPORT_UVD_MGCG |
