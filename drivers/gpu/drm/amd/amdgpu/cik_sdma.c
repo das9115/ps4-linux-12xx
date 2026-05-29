@@ -946,6 +946,26 @@ static int cik_sdma_early_init(struct amdgpu_ip_block *ip_block)
 
 	adev->sdma.num_instances = SDMA_MAX_INSTANCE;
 
+	/*
+	 * PS4 Liverpool/Gladius: only expose the first SDMA engine.
+	 *
+	 * The second engine (SDMA1) ships a different microcode blob
+	 * (liverpool_sdma1.bin reports feature version 0 vs SDMA0's 9) and
+	 * faults on a null GPU address under Vulkan transfer-queue traffic
+	 * (RADV/DXVK). When SDMA1 faults it never signals its completion
+	 * fence, so the GFX ring's cross-engine WAIT_REG_MEM polls forever
+	 * and trips "ring gfx timeout". Native GL workloads route transfers
+	 * through SDMA0 only and are unaffected, which is why they run fine.
+	 *
+	 * Restricting Liverpool to a single SDMA instance forces all DMA
+	 * through the known-good SDMA0 and avoids the deadlock. The kernel's
+	 * own buffer moves and a single userspace transfer queue work fine
+	 * with one instance (as on single-SDMA APUs).
+	 */
+	if (adev->asic_type == CHIP_LIVERPOOL ||
+	    adev->asic_type == CHIP_GLADIUS)
+		adev->sdma.num_instances = 1;
+
 	r = cik_sdma_init_microcode(adev);
 	if (r)
 		return r;
