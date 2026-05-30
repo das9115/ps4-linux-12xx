@@ -103,6 +103,19 @@ static enum drm_gpu_sched_stat amdgpu_job_timedout(struct drm_sched_job *s_job)
 	}
 
 	/*
+	 * Diagnostic: identify exactly which ring/job/pasid tripped the
+	 * timeout, logged before any recovery or coredump runs so it is
+	 * always captured. signaled_seq is the last fence the HW completed;
+	 * emitted_seq is the last fence submitted - a gap means the ring
+	 * stalled mid-stream.
+	 */
+	dev_err(adev->dev,
+		"DEBUG_TIMEOUT ring=%s pasid=%u vmid=%u signaled_seq=%u emitted_seq=%u job=%p\n",
+		ring->name, job->pasid, job->vmid,
+		atomic_read(&ring->fence_drv.last_seq),
+		ring->fence_drv.sync_seq, job);
+
+	/*
 	 * Do the coredump immediately after a job timeout to get a very
 	 * close dump/snapshot/representation of GPU's current error status
 	 * Skip it for SRIOV, since VF FLR will be triggered by host driver

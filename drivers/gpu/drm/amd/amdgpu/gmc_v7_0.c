@@ -1297,6 +1297,17 @@ static int gmc_v7_0_process_interrupt(struct amdgpu_device *adev,
 	/* reset addr and status */
 	WREG32_P(mmVM_CONTEXT1_CNTL2, 1, ~1);
 
+	/*
+	 * Diagnostic: log every vm_fault interrupt, including the ones the
+	 * early-return below would otherwise swallow (addr == 0 &&
+	 * status == 0). This tells us whether Elite Dangerous generates any
+	 * VM fault interrupts at all before the gfx ring timeout.
+	 */
+	dev_err(adev->dev,
+		"DEBUG_VMFAULT addr=0x%08x status=0x%08x mc=0x%08x pasid=%u src_id=%u src_data=0x%08x\n",
+		addr, status, mc_client, entry->pasid, entry->src_id,
+		entry->src_data[0]);
+
 	if (!addr && !status)
 		return 0;
 
