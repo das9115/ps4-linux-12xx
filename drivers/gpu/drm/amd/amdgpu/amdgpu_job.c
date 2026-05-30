@@ -116,6 +116,49 @@ static enum drm_gpu_sched_stat amdgpu_job_timedout(struct drm_sched_job *s_job)
 		ring->fence_drv.sync_seq, job);
 
 	/*
+	 * Diagnostic: dump the IB(s) of the timed-out job so we can see what
+	 * command stream the ring was running when it stopped making forward
+	 * progress. The job is still live in its own timeout handler, so the
+	 * IB suballocation has not been freed and ib->ptr is safe to read.
+	 * Diagnostic only - no behaviour change.
+	 */
+	{
+		unsigned int ib_i, dw_i, dump_dw;
+		struct amdgpu_ib *ib;
+
+		dev_err(adev->dev, "DEBUG_IB ring=%s pasid=%u vmid=%u num_ibs=%u\n",
+			ring->name, job->pasid, job->vmid, job->num_ibs);
+
+		for (ib_i = 0; ib_i < job->num_ibs; ib_i++) {
+			ib = &job->ibs[ib_i];
+
+			dev_err(adev->dev,
+				"DEBUG_IB[%u] gpu_addr=0x%llx length_dw=%u flags=0x%x ptr=%p\n",
+				ib_i, ib->gpu_addr, ib->length_dw, ib->flags,
+				ib->ptr);
+
+			if (!ib->ptr || !ib->length_dw)
+				continue;
+
+			/* dump up to the first 32 dwords, 8 per line */
+			dump_dw = min_t(unsigned int, ib->length_dw, 32u);
+			for (dw_i = 0; dw_i < dump_dw; dw_i += 8) {
+				char buf[8 * 11 + 1];
+				unsigned int k;
+				int pos = 0;
+
+				for (k = 0; k < 8 && (dw_i + k) < dump_dw; k++)
+					pos += scnprintf(buf + pos,
+							 sizeof(buf) - pos,
+							 "0x%08x ",
+							 ib->ptr[dw_i + k]);
+				dev_err(adev->dev, "DEBUG_IB[%u] DW%u: %s\n",
+					ib_i, dw_i, buf);
+			}
+		}
+	}
+
+	/*
 	 * Do the coredump immediately after a job timeout to get a very
 	 * close dump/snapshot/representation of GPU's current error status
 	 * Skip it for SRIOV, since VF FLR will be triggered by host driver
