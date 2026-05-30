@@ -159,6 +159,92 @@ static enum drm_gpu_sched_stat amdgpu_job_timedout(struct drm_sched_job *s_job)
 	}
 
 	/*
+	 * DEBUG_RING_IB: the DRM scheduler blames the oldest unsignalled job,
+	 * which is not necessarily the frame the CP is physically stuck in.
+	 * Read the hardware rptr and decode the PM4 packets the ring is
+	 * actually executing there to find the INDIRECT_BUFFER the GPU is
+	 * running, then compare its address against the timed-out job's IBs.
+	 *
+	 * ring->ring is the kernel CPU mapping of the ring BO, so reading it
+	 * is safe and sleep-free here. We index it exactly like the kernel's
+	 * own ring reader: ring->ring[get_rptr() & buf_mask] (buf_mask and
+	 * rptr are in dwords). The user IBs the ring points to are not
+	 * kernel-mapped (that is why DEBUG_IB shows ptr=NULL for gfx), so we
+	 * decode the ring frame, not the IB body. PM4 decode only makes sense
+	 * for gfx/compute rings. Diagnostic only - no behaviour change.
+	 */
+	if (ring->ring && ring->buf_mask &&
+	    (ring->funcs->type == AMDGPU_RING_TYPE_GFX ||
+	     ring->funcs->type == AMDGPU_RING_TYPE_COMPUTE)) {
+		u32 mask = ring->buf_mask;
+		u32 rptr = amdgpu_ring_get_rptr(ring) & mask;
+		u32 wptr = amdgpu_ring_get_wptr(ring) & mask;
+		unsigned int scan, found = 0, m;
+
+		dev_err(adev->dev,
+			"DEBUG_RING_IB ring=%s rptr=0x%x (byte 0x%x) wptr=0x%x buf_mask=0x%x num_ibs=%u\n",
+			ring->name, rptr, rptr << 2, wptr, mask, job->num_ibs);
+
+		/* reprint the job IBs here so the comparison is self-contained */
+		for (m = 0; m < job->num_ibs; m++)
+			dev_err(adev->dev,
+				"DEBUG_RING_IB job_ib[%u] addr=0x%llx len_dw=%u\n",
+				m, job->ibs[m].gpu_addr, job->ibs[m].length_dw);
+
+		/* raw 16-dword window at rptr for context */
+		for (scan = 0; scan < 16; scan++) {
+			u32 idx = (rptr + scan) & mask;
+
+			dev_err(adev->dev,
+				"DEBUG_RING_IB win +%2u idx=0x%x val=0x%08x\n",
+				scan, idx, ring->ring[idx]);
+		}
+
+		/*
+		 * Walk PM4 type-3 packets forward from rptr looking for
+		 * INDIRECT_BUFFER (0x3f) / INDIRECT_BUFFER_CONST (0x33).
+		 */
+		scan = 0;
+		while (scan < 512) {
+			u32 idx = (rptr + scan) & mask;
+			u32 header = ring->ring[idx];
+			u32 count, op;
+
+			if ((header >> 30) != 3) {	/* not a type-3 header */
+				scan++;
+				continue;
+			}
+			count = ((header >> 16) & 0x3fff) + 1;
+			op = (header >> 8) & 0xff;
+
+			if (op == 0x3f || op == 0x33) {	/* INDIRECT_BUFFER[_CONST] */
+				u32 lo = ring->ring[(idx + 1) & mask];
+				u32 hi = ring->ring[(idx + 2) & mask];
+				u32 ctl = ring->ring[(idx + 3) & mask];
+				u64 ib_addr = ((u64)hi << 32) | (lo & 0xfffffffc);
+				int match = -1;
+
+				for (m = 0; m < job->num_ibs; m++) {
+					if (job->ibs[m].gpu_addr == ib_addr) {
+						match = (int)m;
+						break;
+					}
+				}
+
+				dev_err(adev->dev,
+					"DEBUG_RING_IB[%u] op=0x%02x ring_idx=0x%x ib_addr=0x%llx size_dw=%u ctl=0x%08x job_ib_match=%d\n",
+					found, op, idx, ib_addr, ctl & 0xfffff,
+					ctl, match);
+				found++;
+			}
+			scan += count + 1;
+		}
+		if (!found)
+			dev_err(adev->dev,
+				"DEBUG_RING_IB no INDIRECT_BUFFER found in scan window\n");
+	}
+
+	/*
 	 * Do the coredump immediately after a job timeout to get a very
 	 * close dump/snapshot/representation of GPU's current error status
 	 * Skip it for SRIOV, since VF FLR will be triggered by host driver
