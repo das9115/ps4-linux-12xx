@@ -245,6 +245,47 @@ static enum drm_gpu_sched_stat amdgpu_job_timedout(struct drm_sched_job *s_job)
 	}
 
 	/*
+	 * DEBUG_FENCE: the gfx pipeline-sync WAIT_REG_MEM the CP parks on
+	 * waits for this ring's fence writeback (fence_drv.gpu_addr, e.g.
+	 * 0x401080) to equal sync_seq. cpu_addr is a coherent kernel mirror
+	 * of that exact wb slot, so read the live value and compare it to the
+	 * awaited seq to classify the stall:
+	 *   live <  sync_seq  -> fence never written (work did not retire)
+	 *   live == sync_seq  -> value present but CP not advancing (coherency)
+	 *   live >  sync_seq  -> fence overshot the awaited == value (skip/order)
+	 * Diagnostic only - no behaviour change.
+	 */
+	{
+		u32 fence_live = ring->fence_drv.cpu_addr ?
+			le32_to_cpu(*ring->fence_drv.cpu_addr) : 0xdeadbeef;
+
+		dev_err(adev->dev,
+			"DEBUG_FENCE ring=%s fence_addr=0x%llx live=0x%x sync_seq=0x%x last_seq=0x%x\n",
+			ring->name, ring->fence_drv.gpu_addr, fence_live,
+			ring->fence_drv.sync_seq,
+			(u32)atomic_read(&ring->fence_drv.last_seq));
+	}
+
+	/*
+	 * DEBUG_GRBM: on the PS4 (CIK/gfx7) read the GPU busy-status registers
+	 * to tell a shader/pipeline hang (still churning) apart from the CP
+	 * merely parked on a fence wait (pipeline idle). Offsets are the CIK
+	 * gfx_7_2 ones (GRBM_STATUS/STATUS2/CP_STAT); only read them on the
+	 * matching ASIC so this stays safe on other GPUs. GUI_ACTIVE is bit 31
+	 * of GRBM_STATUS. Diagnostic only.
+	 */
+	if (adev->asic_type == CHIP_LIVERPOOL ||
+	    adev->asic_type == CHIP_GLADIUS) {
+		u32 grbm   = RREG32(0x2004); /* mmGRBM_STATUS  */
+		u32 grbm2  = RREG32(0x2002); /* mmGRBM_STATUS2 */
+		u32 cpstat = RREG32(0x21a0); /* mmCP_STAT      */
+
+		dev_err(adev->dev,
+			"DEBUG_GRBM ring=%s GRBM_STATUS=0x%08x GRBM_STATUS2=0x%08x CP_STAT=0x%08x gui_active=%u\n",
+			ring->name, grbm, grbm2, cpstat, (grbm >> 31) & 1);
+	}
+
+	/*
 	 * Do the coredump immediately after a job timeout to get a very
 	 * close dump/snapshot/representation of GPU's current error status
 	 * Skip it for SRIOV, since VF FLR will be triggered by host driver
