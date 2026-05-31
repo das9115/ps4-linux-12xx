@@ -4860,7 +4860,7 @@ static void gfx_v7_0_gpu_early_init(struct amdgpu_device *adev)
 	case CHIP_LIVERPOOL:
 		adev->gfx.config.max_shader_engines = 2; // Verified
 		adev->gfx.config.max_tile_pipes = 8; // Verified
-		adev->gfx.config.max_cu_per_sh = 9; // Probably OK
+		adev->gfx.config.max_cu_per_sh = 8; // Originally 9, testing with 8 as hardware reports only 8 active CUs/SH
 		adev->gfx.config.max_sh_per_se = 1; // Verified
 		adev->gfx.config.max_backends_per_se = 2; // Probably OK?
 		adev->gfx.config.max_texture_channel_caches = 4; // ??
