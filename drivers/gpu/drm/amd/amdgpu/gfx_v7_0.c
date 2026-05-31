@@ -3712,7 +3712,13 @@ static void gfx_v7_0_ring_emit_pipeline_sync(struct amdgpu_ring *ring)
 
 	amdgpu_ring_write(ring, PACKET3(PACKET3_WAIT_REG_MEM, 5));
 	amdgpu_ring_write(ring, (WAIT_REG_MEM_MEM_SPACE(1) | /* memory */
-				 WAIT_REG_MEM_FUNCTION(3) | /* equal */
+				 WAIT_REG_MEM_FUNCTION(5) | /* >= (was ==): the
+				 * fence is monotonic, and on PS4 Liverpool the
+				 * writeback was observed to overshoot the exact
+				 * sync_seq target (live > ref) before the CP
+				 * evaluated the wait, so FUNCTION(3)/== never
+				 * matched and the gfx ring wedged. >= is the
+				 * correct fence semantics and unblocks it. */
 				 WAIT_REG_MEM_ENGINE(usepfp)));   /* pfp or me */
 	amdgpu_ring_write(ring, addr & 0xfffffffc);
 	amdgpu_ring_write(ring, upper_32_bits(addr) & 0xffffffff);
