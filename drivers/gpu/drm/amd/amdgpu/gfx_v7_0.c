@@ -5833,6 +5833,14 @@ static void gfx_v7_0_get_cu_info(struct amdgpu_device *adev)
 			if (i < 2 && j < 2)
 				ao_cu_mask |= (ao_bitmap << (i * 16 + j * 8));
 			cu_info->ao_cu_bitmap[i][j] = ao_bitmap;
+
+			/* DEBUG_CUINFO: report the active-CU bitmap actually
+			 * detected from the harvest fuses for each shader
+			 * engine/array. This is what gets handed to userspace
+			 * (RADV) and used for compute CU masking. */
+			dev_info(adev->dev,
+				 "DEBUG_CUINFO se=%d sh=%d active_bitmap=0x%08x count=%d\n",
+				 i, j, bitmap, counter);
 		}
 	}
 	gfx_v7_0_select_se_sh(adev, 0xffffffff, 0xffffffff, 0xffffffff, 0);
@@ -5840,6 +5848,18 @@ static void gfx_v7_0_get_cu_info(struct amdgpu_device *adev)
 
 	cu_info->number = active_cu_number;
 	cu_info->ao_cu_mask = ao_cu_mask;
+
+	/* DEBUG_CUINFO: totals + raw harvest fuses. If active_cu/SE looks
+	 * like max_cu_per_sh (9, hardcoded "Probably OK") while the die has
+	 * fewer physical CUs, the kernel is reporting phantom CUs to RADV. */
+	dev_info(adev->dev,
+		 "DEBUG_CUINFO total active_cu=%d ao_cu_mask=0x%08x max_cu_per_sh=%d max_se=%d max_sh_per_se=%d raw_CC=0x%08x raw_USER=0x%08x\n",
+		 cu_info->number, cu_info->ao_cu_mask,
+		 adev->gfx.config.max_cu_per_sh,
+		 adev->gfx.config.max_shader_engines,
+		 adev->gfx.config.max_sh_per_se,
+		 RREG32(mmCC_GC_SHADER_ARRAY_CONFIG),
+		 RREG32(mmGC_USER_SHADER_ARRAY_CONFIG));
 	cu_info->simd_per_cu = NUM_SIMD_PER_CU;
 	cu_info->max_waves_per_simd = 10;
 	cu_info->max_scratch_slots_per_cu = 32;
